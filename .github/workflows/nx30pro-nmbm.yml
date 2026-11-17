@@ -64,17 +64,33 @@ jobs:
           grep -qx 'CONFIG_PACKAGE_luci-app-homi=y' .config
           grep -qx 'CONFIG_PACKAGE_luci-theme-aurora=y' .config
           grep -qx 'CONFIG_PACKAGE_luci-app-aurora-config=y' .config
+          # NOTE: luci / luci-light / luci-theme-bootstrap are EXPECTED to be
+          # present, even though the config once set them "not set": the
+          # default-settings chain pulls them back in via Kconfig select,
+          # which overrides an explicit "not set":
+          #   default-settings-chn (=y) -> default-settings -> luci
+          #   -> luci-light -> luci-theme-bootstrap
+          # Aurora is still the default theme: its uci-defaults script
+          # (30_luci-theme-aurora) sets luci.main.mediaurlbase to aurora,
+          # and default-settings does not touch the theme.
+          grep -qx 'CONFIG_PACKAGE_luci=y' .config
+          grep -qx 'CONFIG_PACKAGE_luci-light=y' .config
+          grep -qx 'CONFIG_PACKAGE_luci-theme-bootstrap=y' .config
+          # homi's runtime deps (selected by homi=y via Kconfig select)
+          grep -qx 'CONFIG_PACKAGE_yq=y' .config
+          grep -qx 'CONFIG_PACKAGE_curl=y' .config
+          grep -qx 'CONFIG_PACKAGE_libcurl=y' .config
+          grep -qx 'CONFIG_PACKAGE_unzip=y' .config
           ! grep -qx 'CONFIG_PACKAGE_luci-app-ttyd=y' .config
           ! grep -qx 'CONFIG_PACKAGE_luci-app-passwall=y' .config
           ! grep -qx 'CONFIG_PACKAGE_luci-theme-argon=y' .config
-          ! grep -qx 'CONFIG_PACKAGE_luci-theme-bootstrap=y' .config
 
       - name: Show selected config
         run: |
           echo "==== target/profile ===="
           grep -E '^(CONFIG_TARGET_|CONFIG_TARGET_PROFILE)' .config | sort || true
           echo "==== required GUI + custom packages ===="
-          grep -E '^(CONFIG_PACKAGE_luci-app-mtwifi-cfg|CONFIG_PACKAGE_luci-i18n-mtwifi-cfg-zh-cn|CONFIG_PACKAGE_luci-app-turboacc-mtk|CONFIG_PACKAGE_luci-i18n-turboacc-mtk-zh-cn|CONFIG_PACKAGE_kmod-bonding|CONFIG_PACKAGE_kmod-netlink-diag|CONFIG_PACKAGE_kmod-ipt-fullconenat|CONFIG_PACKAGE_easytier-noweb|CONFIG_PACKAGE_luci-app-easytier|CONFIG_PACKAGE_mihomo|CONFIG_PACKAGE_homi|CONFIG_PACKAGE_luci-app-homi|CONFIG_PACKAGE_luci-theme-aurora|CONFIG_PACKAGE_luci-app-aurora-config)' .config || true
+          grep -E '^(CONFIG_PACKAGE_luci-app-mtwifi-cfg|CONFIG_PACKAGE_luci-i18n-mtwifi-cfg-zh-cn|CONFIG_PACKAGE_luci-app-turboacc-mtk|CONFIG_PACKAGE_luci-i18n-turboacc-mtk-zh-cn|CONFIG_PACKAGE_kmod-bonding|CONFIG_PACKAGE_kmod-netlink-diag|CONFIG_PACKAGE_kmod-ipt-fullconenat|CONFIG_PACKAGE_easytier-noweb|CONFIG_PACKAGE_luci-app-easytier|CONFIG_PACKAGE_mihomo|CONFIG_PACKAGE_homi|CONFIG_PACKAGE_luci-app-homi|CONFIG_PACKAGE_luci-theme-aurora|CONFIG_PACKAGE_luci-app-aurora-config|CONFIG_PACKAGE_luci-light|CONFIG_PACKAGE_luci-theme-bootstrap|CONFIG_PACKAGE_yq|CONFIG_PACKAGE_curl|CONFIG_PACKAGE_libcurl|CONFIG_PACKAGE_unzip)' .config || true
 
       - name: Download sources
         run: |
