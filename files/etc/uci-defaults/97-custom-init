@@ -1,0 +1,96 @@
+#!/bin/sh
+# 97-custom-init — 首次开机初始化（uci-defaults，成功执行后自动删除，仅运行一次）
+#
+# 内容：[1] 2.4G/5G WiFi（SSID + WPA2 密钥，Moto 定制）→
+#       [2] 禁用数据包引导（packet steering，Moto 定制）→
+#       [3] LAN IP 改为 172.16.6.1/24（Moto 定制）
+#
+# ⚠ 含 WiFi 密钥：本仓库是公开 fork，密钥会明文躺在仓库里，请自行评估。
+#    如介意可把下面的 WIFI_KEY 改成占位符，刷机后进 LuCI 再改。
+#
+# 说明：无线 section 名由 mtwifi 驱动探测生成（不是 radio0/radio1），
+#      脚本按频段（2g/5g）自动定位 device 与 iface，不依赖固定名字。
+#      5G 国家码与 HE160 不用这里设：驱动探测（detect_mtwifi）默认就
+#      是 country=CN、htmode=HE160、信道 36。
+
+# ---------------- 可调参数（与 Moto 定制一致） ----------------
+WIFI_24_SSID='Moto'
+WIFI_5_SSID='Moto_5G'
+WIFI_KEY='arzin1122'
+WIFI_24_CHANNEL='1'
+WIFI_5_CHANNEL='36'
+LAN_IP='172.16.6.1'
+LAN_NETMASK='255.255.255.0'
+# ------------------------------------------
+
+log() { logger -t custom-init "$@"; }
+
+echo "=== [1/3] 正在配置 2.4G 与 5G Wi-Fi ==="
+
+# 按频段找 wifi-device（兼容新旧两种命名）
+find_radio() { # $1: 2g|5g → 输出 device 名
+	local want="$1" d b h
+	for d in $(uci -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([A-Za-z0-9_-]*\)=wifi-device$/\1/p'); do
+		b="$(uci -q get wireless.$d.band 2>/dev/null)"
+		h="$(uci -q get wireless.$d.hwmode 2>/dev/null)"
+		if [ "$want" = "5g" ]; then
+			{ [ "$b" = "5g" ] || { [ -z "$b" ] && [ "$h" = "11a" ]; }; } && { echo "$d"; return 0; }
+		else
+			{ [ "$b" = "2g" ] || { [ -z "$b" ] && [ "$h" = "11g" ]; }; } && { echo "$d"; return 0; }
+		fi
+	done
+	return 1
+}
+
+# 找某个 device 下的第一个 wifi-iface
+find_iface() { # $1: device 名 → 输出 iface 名
+	local dev="$1" i
+	for i in $(uci -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([A-Za-z0-9_-]*\)=wifi-iface$/\1/p'); do
+		[ "$(uci -q get wireless.$i.device 2>/dev/null)" = "$dev" ] && { echo "$i"; return 0; }
+	done
+	return 1
+}
+
+setup_wifi() { # $1:频段 $2:信道 $3:SSID
+	local band="$1" ch="$2" ssid="$3" dev iface
+	dev="$(find_radio "$band")"
+	if [ -z "$dev" ]; then log "未找到 $band radio，跳过"; return 0; fi
+	iface="$(find_iface "$dev")"
+	if [ -z "$iface" ]; then log "未找到 $dev 的 wifi-iface，跳过"; return 0; fi
+	uci set "wireless.$dev.channel=$ch"
+	uci set "wireless.$dev.disabled=0"
+	uci set "wireless.$iface.ssid=$ssid"
+	uci set "wireless.$iface.encryption=psk2"
+	uci set "wireless.$iface.key=$WIFI_KEY"
+	log "WiFi($band): $dev/$iface → SSID=$ssid ch=$ch"
+}
+
+# /etc/config/wireless 可能尚未生成，没有就先生成
+if [ ! -f /etc/config/wireless ]; then
+	command -v wifi >/dev/null 2>&1 && wifi config >/dev/null 2>&1
+fi
+if [ -f /etc/config/wireless ]; then
+	setup_wifi 2g "$WIFI_24_CHANNEL" "$WIFI_24_SSID"
+	setup_wifi 5g "$WIFI_5_CHANNEL" "$WIFI_5_SSID"
+	uci commit wireless
+else
+	log "未找到 /etc/config/wireless，跳过 WiFi 配置"
+fi
+
+echo "=== [2/3] 正在禁用数据包引导 ==="
+sed -i "/packet_steering/d" /etc/config/network
+uci set network.globals.packet_steering='0'
+uci commit network
+
+for rps in /sys/class/net/*/queues/rx-*/rps_cpus; do echo 0 > "$rps" 2>/dev/null; done
+for xps in /sys/class/net/*/queues/tx-*/xps_cpus; do echo 0 > "$xps" 2>/dev/null; done
+
+echo "=== [3/3] 正在将 LAN IP 修改为 $LAN_IP ==="
+uci set network.lan.ipaddr="$LAN_IP"
+uci set network.lan.netmask="$LAN_NETMASK"
+uci commit network
+
+# 让已提交的无线配置立即生效（首启时多为兜底）
+command -v wifi >/dev/null 2>&1 && wifi reload >/dev/null 2>&1 || true
+
+exit 0
