@@ -7,6 +7,9 @@ set -euo pipefail
 #   EasyTier：easytier-noweb + luci-app-easytier
 #   Homi：mihomo + homi + luci-app-homi（用户自有项目）
 #   Aurora：luci-theme-aurora + luci-app-aurora-config（用户常用主题）
+#   NetPath：luci-app-netpath（用户自有项目，LuCI 仪表盘）
+# 注意：NetPath 用 main 分支（1.0.15），不要用 v1.0.16 tag——那个 tag
+# 是已放弃的 8080 独立 Web 版（第二 uhttpd 实例），不在主线。
 #
 # 运行点：workflow 的 "Prepare custom packages" 步，feeds install 之后、
 # cp configs/nx30pro-nmbm.config .config 之前。定制包拷进 package/custom/
@@ -15,7 +18,7 @@ set -euo pipefail
 # 注意：connector push 会丢可执行位，workflow 里必须用 `bash scripts/customize.sh`
 # 调用，不能直接 `./scripts/customize.sh`。
 
-echo "=== [NX30Pro] Preparing custom packages (EasyTier / Homi / Aurora) ==="
+echo "=== [NX30Pro] Preparing custom packages (EasyTier / Homi / Aurora / NetPath) ==="
 
 PKG_DIR="package/custom"
 mkdir -p "$PKG_DIR"
@@ -99,6 +102,24 @@ for repo in luci-theme-aurora luci-app-aurora-config; do
   rm -rf "$AU_TMP"
 done
 
+# --- NetPath：LuCI 仪表盘 ---
+# 源：pg-go/luci-app-netpath（用户自有项目）。包在子目录 luci-app-netpath，
+# 拷出子目录。只用 main 分支（1.0.15，LuCI 版）；v1.0.16 tag 是已放弃的
+# 8080 独立 Web 版，不要拉。
+NP_TMP="$(mktemp -d)/netpath"
+if ! clone https://github.com/pg-go/luci-app-netpath "$NP_TMP" main; then
+  echo "::error::pg-go/luci-app-netpath 拉取失败，luci-app-netpath 会被 defconfig 剔除"
+  exit 1
+fi
+if [ ! -f "$NP_TMP/luci-app-netpath/Makefile" ]; then
+  echo "::error::$NP_TMP/luci-app-netpath/Makefile 不存在（上游改结构了？）"
+  exit 1
+fi
+rm -rf "$PKG_DIR/luci-app-netpath"
+cp -a "$NP_TMP/luci-app-netpath" "$PKG_DIR/"
+echo "✅ 已拷贝: luci-app-netpath"
+rm -rf "$NP_TMP"
+
 # ---------------------------------------------------------
 # 让新包进入索引
 #   prepare-tmpinfo 直接扫 package/ 树（scan.mk: find -L package -maxdepth 5），
@@ -134,7 +155,7 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   echo "=========================================="
   # 必装插件（configs/nx30pro-nmbm.config 里是 =y 的那几个）必须进索引，
   # 否则 defconfig 会静默剔除。任一项没进索引，直接报错退出。
-  REQUIRED="easytier-noweb luci-app-easytier mihomo homi luci-app-homi luci-theme-aurora luci-app-aurora-config"
+  REQUIRED="easytier-noweb luci-app-easytier mihomo homi luci-app-homi luci-theme-aurora luci-app-aurora-config luci-app-netpath"
   HARD_MISS=""
   for r in $REQUIRED; do
     grep -qx "Package: $r" tmp/.packageinfo 2>/dev/null || HARD_MISS="$HARD_MISS $r"
